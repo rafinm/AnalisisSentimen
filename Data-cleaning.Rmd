@@ -1,0 +1,48 @@
+---
+title : "Data Cleaning"
+output : FALSE
+---
+
+```{r main}
+library(tm)     #untuk membersihkan data
+library(NLP)    #natural language processing
+library(vroom)  #untuk me-load dataset
+library(here)   #untuk menyimpan dataset
+library(katadasaR)
+
+dataAwal <- vroom(here("databaru.csv")) #loading file csv
+
+respon_raw <- dataAwal$opinionText #memilih kolom respon
+
+respon <- Corpus(VectorSource(respon_raw))
+
+
+respon_clean <- tm_map(respon,function(y) gsub("\n", " ", y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("[[:digit:]]+", "", y))
+
+respon_clean <- tm_map(respon_clean, function(y) gsub("yg","yang",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("krn\\karna","karena",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("onlen","online",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("tehnologi\\tekhnologi","teknologi",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("tdk\\tak\\nggak\\gak\\gk","tidak",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("utk","untuk",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("siiswa","siswa",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("aktifitas","aktivitas",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("lebi\\lbh","lebih",y))
+respon_clean <- tm_map(respon_clean, function(y) gsub("srkrdar\\sekedar","sekadar",y))
+
+respon_clean <- tm_map(respon_clean, removePunctuation)
+respon_clean <- tm_map(respon_clean, tolower)
+
+myStopwords = readLines("stopwords-indo.txt")
+
+sapply(respon_clean, katadasaR)
+
+respon_clean <- tm_map(respon_clean,removeWords,myStopwords)
+
+myDf <- data.frame(text=unlist(sapply(respon_clean, `[`)), stringsAsFactors=F)
+
+#View(myDf)
+write.csv(myDf, file="respon clean.csv")
+```
+

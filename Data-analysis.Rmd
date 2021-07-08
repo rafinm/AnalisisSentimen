@@ -1,0 +1,340 @@
+---
+title: "Naive-Bayes and Shiny"
+output: FALSE
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Pembuatan Bar Plot}
+library(e1071) #untuk naive bayes
+library(caret) #untuk klasifikasi data
+library(syuzhet) #untuk membaca fungsi get_nrc
+
+kalimat2 <- read.csv("respon clean.csv",stringsAsFactors = FALSE)
+review <- as.character(kalimat2$text) #merubah text menjadi char
+
+#skoring
+positif <- scan("positif.txt",what="character",comment.char=";")
+negatif <- scan("negatif.txt",what="character",comment.char=";")
+
+score.sentiment = function(kalimat2, positif, negatif, .progress='none')
+{
+  require(plyr)
+  require(stringr)
+  scores = laply(kalimat2, function(kalimat, positif, negatif) {
+    kalimat = gsub('[[:punct:]]', ' ', kalimat)
+    kalimat = gsub('[[:cntrl:]]', ' ', kalimat)
+    kalimat = gsub('\\d+', '', kalimat)
+    kalimat = tolower(kalimat)
+    
+    list.kata = str_split(kalimat, '\\s+')
+    kata2 = unlist(list.kata)
+    positif.matches = match(kata2, positif)
+    negatif.matches = match(kata2, negatif)
+    positif.matches = !is.na(positif.matches)
+    negatif.matches = !is.na(negatif.matches)
+    score = sum(positif.matches) - (sum(negatif.matches))
+    return(score)
+  }, positif, negatif, .progress=.progress )
+  scores.df = data.frame(score=scores, text=kalimat2)
+  return(scores.df)
+}
+
+hasil = score.sentiment(kalimat2$text, positif, negatif)
+
+hasil$klasifikasi<- ifelse(hasil$score<0, "Negatif",ifelse(hasil$score==0,"Netral","Positif"))
+hasil$klasifikasi
+
+hasil2 <- as.numeric(unlist(hasil))
+
+pos <- sum(hasil$score > 0)
+neg <- sum(hasil$score < 0)
+net <- sum(hasil$score == 0)
+
+warna <- c("red","blue","green")
+
+labels <- c(neg,net,pos)
+labels_arg <- c('Negatif','Netral','Positif')
+
+ss <- barplot(labels,names.arg=labels_arg,ylab="Jumlah Komentar",col=warna,
+main="Jenis Sentimen")
+
+text(x = ss, y = labels, label = labels, pos = 3, cex = 2, col = "black")
+```
+
+```{r Pembuatan Word Cloud}
+#library untuk penggunaan corpus dalam cleaning data
+library(tm)
+library(RTextTools)
+#library yang terdapat sebuah algoritma naivebayes
+library(e1071)
+library(dplyr)
+library(caret)
+df<-read.csv("respon clean.csv",stringsAsFactors = FALSE)
+glimpse(df)
+
+#Set the seed of R‘s random number generator, which is useful for creating simulations or random objects that can be reproduced.
+set.seed(20)
+df<-df[sample(nrow(df)),]
+df<-df[sample(nrow(df)),]
+glimpse(df)
+
+corpus<-Corpus(VectorSource(df$text))
+corpus
+inspect(corpus[1:10])
+#fungsinya untuk membersihkan data data yang tidak dibutuhkan 
+corpus.clean<-corpus%>%
+    tm_map(content_transformer(tolower))%>%
+    tm_map(removePunctuation)%>%
+    tm_map(removeNumbers)%>%
+    tm_map(removeWords,stopwords(kind="en"))%>%
+    tm_map(stripWhitespace)
+dtm<-DocumentTermMatrix(corpus.clean)
+
+inspect(dtm[1:10,1:20])
+
+df.train<-df[1:50,]
+df.test<-df[51:100,]
+
+dtm.train<-dtm[1:50,]
+dtm.test<-dtm[51:100,]
+
+corpus.clean.train<-corpus.clean[1:50]
+corpus.clean.test<-corpus.clean[51:100]
+
+dim(dtm.train)
+fivefreq<-findFreqTerms(dtm.train,5)
+length(fivefreq)
+
+dtm.train.nb<-DocumentTermMatrix(corpus.clean.train,control = list(dictionary=fivefreq))
+
+#dim(dtm.train.nb)
+
+dtm.test.nb<-DocumentTermMatrix(corpus.clean.test,control = list(dictionary=fivefreq))
+
+dim(dtm.test.nb)
+ 
+convert_count <- function(x){
+    y<-ifelse(x>0,1,0)
+    y<-factor(y,levels=c(0,1),labels=c("no","yes"))
+    y
+}
+trainNB<-apply(dtm.train.nb,2,convert_count)
+testNB<-apply(dtm.test.nb,1,convert_count)
+
+
+library(wordcloud)
+wordcloud(corpus.clean,min.freq = 4,max.words=100,random.order=F,colors=brewer.pal(8,"Dark2"))
+
+```
+
+```{r WEB SHINY}
+library(shiny)
+library(here)
+library(vroom)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(syuzhet)
+library(tm)
+library(RTextTools)
+
+musicc<- read.csv("respon clean.csv")
+music<- musicc$text
+
+#UI 
+ui <- {fluidPage(
+    titlePanel("ANALISIS SENTIMEN PEMBELAJARAN JARAK JAUH"),
+    mainPanel(
+            tabsetPanel(type = "tabs",
+                       tabPanel("Bar Plot",
+                                plotOutput("scatterplot")), 
+                        # Plot
+                        tabPanel("Word Cloud", plotOutput("wordcloud")),tabPanel("Line Chart", plotOutput("linechart")),
+                       tabPanel("Clean Data", DT::dataTableOutput('tabel')) # Output Data Dalam Tabel
+                        
+                        )
+        )
+    )}
+
+# SERVER
+server <- function(input, output) {
+    
+    #untuk output Clean Data
+    output$tabel = DT::renderDataTable({
+        DT::datatable(musicc, options = list(lengthChange = FALSE))
+    })
+    #################################################################
+    #untuk output line chart
+    output$linechart <- renderPlot({
+      kalimat2 <- read.csv("respon clean.csv",stringsAsFactors = FALSE)
+review <- as.character(kalimat2$text) #merubah text menjadi char
+
+#skoring
+positif <- scan("positif.txt",what="character",comment.char=";")
+negatif <- scan("negatif.txt",what="character",comment.char=";")
+
+score.sentiment = function(kalimat2, positif, negatif, .progress='none')
+{
+  require(plyr)
+  require(stringr)
+  scores = laply(kalimat2, function(kalimat, positif, negatif) {
+    kalimat = gsub('[[:punct:]]', ' ', kalimat)
+    kalimat = gsub('[[:cntrl:]]', ' ', kalimat)
+    kalimat = gsub('\\d+', '', kalimat)
+    kalimat = tolower(kalimat)
+    
+    list.kata = str_split(kalimat, '\\s+')
+    kata2 = unlist(list.kata)
+    positif.matches = match(kata2, positif)
+    negatif.matches = match(kata2, negatif)
+    positif.matches = !is.na(positif.matches)
+    negatif.matches = !is.na(negatif.matches)
+    score = sum(positif.matches) - (sum(negatif.matches))
+    return(score)
+  }, positif, negatif, .progress=.progress )
+  scores.df = data.frame(score=scores, text=kalimat2)
+  return(scores.df)
+}
+
+hasil = score.sentiment(kalimat2$text, positif, negatif)
+
+hasil$klasifikasi<- ifelse(hasil$score<0, "Negatif",ifelse(hasil$score==0,"Netral","Positif"))
+hasil$klasifikasi
+
+hasil2 <- as.numeric(unlist(hasil))
+
+pos <- sum(hasil$score > 0)
+neg <- sum(hasil$score < 0)
+net <- sum(hasil$score == 0)
+
+labels <- c(neg,net,pos)
+labels_arg <- c('Negatif','Netral','Positif')
+
+plot(labels,type = "o", col = "red", xlab = "Indeks Sentimen", ylab = "Jumlah sentimen",main = "Jumlah Sentimen", lwd = 5)
+
+    })
+    
+    ###########################################################################
+    
+    #untuk output tab Bar Plot
+    output$scatterplot <- renderPlot({
+      
+kalimat2 <- read.csv("respon clean.csv",stringsAsFactors = FALSE)
+review <- as.character(kalimat2$text) #merubah text menjadi char
+
+#skoring
+positif <- scan("positif.txt",what="character",comment.char=";")
+negatif <- scan("negatif.txt",what="character",comment.char=";")
+
+score.sentiment = function(kalimat2, positif, negatif, .progress='none')
+{
+  require(plyr)
+  require(stringr)
+  scores = laply(kalimat2, function(kalimat, positif, negatif) {
+    kalimat = gsub('[[:punct:]]', ' ', kalimat)
+    kalimat = gsub('[[:cntrl:]]', ' ', kalimat)
+    kalimat = gsub('\\d+', '', kalimat)
+    kalimat = tolower(kalimat)
+    
+    list.kata = str_split(kalimat, '\\s+')
+    kata2 = unlist(list.kata)
+    positif.matches = match(kata2, positif)
+    negatif.matches = match(kata2, negatif)
+    positif.matches = !is.na(positif.matches)
+    negatif.matches = !is.na(negatif.matches)
+    score = sum(positif.matches) - (sum(negatif.matches))
+    return(score)
+  }, positif, negatif, .progress=.progress )
+  scores.df = data.frame(score=scores, text=kalimat2)
+  return(scores.df)
+}
+
+hasil = score.sentiment(kalimat2$text, positif, negatif)
+
+hasil$klasifikasi<- ifelse(hasil$score<0, "Negatif",ifelse(hasil$score==0,"Netral","Positif"))
+hasil$klasifikasi
+
+hasil2 <- as.numeric(unlist(hasil))
+
+pos <- sum(hasil$score > 0)
+neg <- sum(hasil$score < 0)
+net <- sum(hasil$score == 0)
+
+warna <- c("red","blue","green")
+
+labels <- c(neg,net,pos)
+labels_arg <- c('Negatif','Netral','Positif')
+
+ss <- barplot(labels,names.arg=labels_arg,ylab="Jumlah Komentar",col=warna,
+main="Jenis Sentimen")
+
+text(x = ss, y = labels, label = labels, pos = 3, cex = 2, col = "black")
+    }, height=400)
+    
+    #######################################################################
+    #untuk output tab Word Cloud
+    output$wordcloud <- renderPlot({
+      
+      df<-read.csv("respon clean.csv",stringsAsFactors = FALSE)
+glimpse(df)
+      
+set.seed(20)
+df<-df[sample(nrow(df)),]
+df<-df[sample(nrow(df)),]
+glimpse(df)
+
+corpus<-Corpus(VectorSource(df$text))
+corpus
+inspect(corpus[1:10])
+#fungsinya untuk membersihkan data data yang tidak dibutuhkan 
+corpus.clean<-corpus%>%
+    tm_map(content_transformer(tolower))%>%
+    tm_map(removePunctuation)%>%
+    tm_map(removeNumbers)%>%
+    tm_map(removeWords,stopwords(kind="en"))%>%
+    tm_map(stripWhitespace)
+dtm<-DocumentTermMatrix(corpus.clean)
+
+inspect(dtm[1:10,1:20])
+
+df.train<-df[1:50,]
+df.test<-df[51:100,]
+
+dtm.train<-dtm[1:50,]
+dtm.test<-dtm[51:100,]
+
+corpus.clean.train<-corpus.clean[1:50]
+corpus.clean.test<-corpus.clean[51:100]
+
+dim(dtm.train)
+fivefreq<-findFreqTerms(dtm.train,5)
+length(fivefreq)
+
+dtm.train.nb<-DocumentTermMatrix(corpus.clean.train,control = list(dictionary=fivefreq))
+
+#dim(dtm.train.nb)
+
+dtm.test.nb<-DocumentTermMatrix(corpus.clean.test,control = list(dictionary=fivefreq))
+
+dim(dtm.test.nb)
+ 
+convert_count <- function(x){
+    y<-ifelse(x>0,1,0)
+    y<-factor(y,levels=c(0,1),labels=c("no","yes"))
+    y
+}
+trainNB<-apply(dtm.train.nb,2,convert_count)
+testNB<-apply(dtm.test.nb,1,convert_count)
+
+
+library(wordcloud)
+wordcloud(corpus.clean, min.freq = 4,max.words=100,random.order=F,colors=brewer.pal(8,"Dark2"))
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
